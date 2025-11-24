@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from inference import CLASSES, InferencePipeline
 
@@ -8,14 +8,14 @@ pipeline = InferencePipeline()
 
 
 class Symptoms(BaseModel):
-    Fever: int
-    Cough: int
-    Fatigue: int
-    DifficultyBreathing: int
-    Age: int
-    Gender: int
-    BloodPressure: int
-    CholesterolLevel: int
+    Fever: int = Field(..., description="1 = fever present, 0 = no fever", example=1)
+    Cough: int = Field(..., description="1 = cough present, 0 = no cough", example=0)
+    Fatigue: int = Field(..., description="1 = fatigue present, 0 = no fatigue", example=1)
+    DifficultyBreathing: int = Field(..., description="1 = difficulty breathing, 0 = normal breathing", example=0)
+    Age: int = Field(..., description="Patient age in years", example=35)
+    Gender: int = Field(..., description="1 = Male, 0 = Female", example=1)
+    BloodPressure: int = Field(..., description="0 = Low, 1 = Normal, 2 = High blood pressure", example=2)
+    CholesterolLevel: int = Field(..., description="0 = Low, 1 = Normal, 2 = High cholesterol", example=1)
 
 
 @app.get("/health")
