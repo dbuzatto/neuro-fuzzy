@@ -1,85 +1,143 @@
 # Sistema Neuro-Fuzzy para Triagem de Sintomas
 
 **Integrantes**
+
 - Diogo Buzatto (dbuzatto)
 - Lucas Ferreira (lucasfeva)
 
-Descrição
--	Projeto que implementa um sistema neuro-fuzzy inspirado em ANFIS para triagem de sintomas e classificação de gravidade em três classes: Autocuidado, Consulta Médica e Emergência. O repositório contém código para preparar múltiplos datasets, criar labels de severidade, treinar um modelo aproximado de ANFIS e avaliar os resultados.
+Projeto que implementa um modelo neuro-fuzzy (ANFIS simplificado) para classificar gravidade de sintomas em 3 classes: Autocuidado, Consulta Medica e Emergencia. Inclui pipeline de dados, geracao de labels heuristicas, treinamento, avaliacao, artefatos salvos e API FastAPI pronta para consumo por frontend (React/Next).
 
-Principais arquivos
--	`main.py` — Pipeline principal: carregamento, pré-processamento, criação de labels de gravidade, divisão dos dados, treino e avaliação.
--	`api.py` — API (FastAPI) para expor o modelo/serviços (iniciar com `uvicorn api:app --reload`).
--	`requirements.txt` — Dependências do projeto.
--	`datasets/` — Pasta com CSVs usados (ver seção Datasets).
+## Visao rapida
 
-Funcionalidades
--	Carregamento de múltiplos CSVs e fusão automática quando compatíveis.
--	Pré-processamento de features (binárias, idade, gênero, pressão arterial, colesterol).
--	Geração de labels de severidade (0=Autocuidado, 1=Consulta Médica, 2=Emergência) com regras clínicas heurísticas.
--	Modelo aproximado de ANFIS implementado com camadas Keras.
--	Treinamento com callbacks (EarlyStopping, ReduceLROnPlateau) e avaliação com matriz de confusão e relatório de classificação.
+- Pipeline unico em `main.py` (versao 3.0) com configuracao via `TrainingConfig` e seeds fixas.
+- Limpeza + imputacao (mediana), mapeamento consistente de colunas binarias/categoricas e regra de severidade explicita.
+- Oversampling opcional no treino para evitar colapso em classes raras (`use_oversampling=True` por padrao) + `class_weight`.
+- Modelo ANFIS aproximado (fuzzificacao gaussiana + regras densas + consequente com L2/Dropout mais leves) com callbacks de EarlyStopping/ReduceLROnPlateau.
+- Metricas: accuracy, macro-F1, micro-F1, matriz de confusao e relatorio de classificacao.
+- Artefatos em `artifacts/`: modelo, scaler, imputer, label encoder, config (JSON) e grafico `anfis_results.png`.
+- API em `api.py` usando `InferencePipeline` (`inference.py`) para previsoes consistentes.
+- Opcional: validacao cruzada estratificada (k-fold) para avaliar variacao entre folds.
 
-Requisitos
--	Python 3.8+ (recomendado 3.9/3.10)
--	Recomenda-se GPU para treinos maiores, mas funciona em CPU.
+## Estrutura
 
-Instalação
+- `main.py` - pipeline completo (dados -> preprocess -> labels -> split -> balanceamento -> treino -> avaliacao -> artefatos).
+- `inference.py` - classe `InferencePipeline` para carregar artefatos e prever (aplica imputer + scaler antes da rede).
+- `api.py` - FastAPI com `/health` e `/predict` usando `InferencePipeline`.
+- `datasets/` - CSVs de treino (nao versionados aqui).
+- `artifacts/` - saidas do treino (criado apos rodar `main.py`).
+- `requirements.txt` - dependencias.
+
+## Como rodar (treino)
+
 ```bash
-# criar e ativar venv (bash / zsh)
-python3 -m venv .venv
-source .venv/bin/activate
-
-# instalar dependências
+python -m venv .venv
+. .venv/Scripts/activate  # PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+python main.py  # executa pipeline completo
 ```
 
-Executando a API (desenvolvimento)
+Artefatos gerados em `artifacts/`: `anfis_symptom_triage_model.keras`, `scaler.pkl`, `imputer.pkl`, `label_encoder.pkl`, `config.json` e `anfis_results.png`.
+
+### Configuracao
+
+Edite a classe `TrainingConfig` em `main.py` para hiperparametros. Defaults relevantes para evitar colapso em classes raras:
+
+- `num_mfs=2`, `num_rules=16`, `hidden1_units=48`, `hidden2_units=24`, `dropout1=0.2`, `dropout2=0.1`, `l2_reg=1e-3`.
+- `use_oversampling=True` aplica oversampling no treino para balancear classes antes de treinar.
+- `patience=25`, `epochs=150`, `learning_rate=1e-3`.
+- `enable_cross_validation` pode ser ligado para StratifiedKFold (3 folds) e medir variacao.
+
+### Validacao cruzada (opcional)
+
+Habilite `enable_cross_validation = True` na `TrainingConfig` para rodar StratifiedKFold e ver macro-F1 medio por fold.
+
+## Como rodar a API
+
+Treine primeiro para gerar artefatos. Depois:
+
 ```bash
 uvicorn api:app --reload
 ```
-A API é definida em `api.py`. Ajuste endpoints conforme necessário.
 
-Treinamento do modelo
+Requisicao de exemplo:
+
 ```bash
-python main.py
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "Fever": 1,
+    "Cough": 1,
+    "Fatigue": 0,
+    "DifficultyBreathing": 1,
+    "Age": 54,
+    "Gender": 1,
+    "BloodPressure": 2,
+    "CholesterolLevel": 2
+  }'
 ```
-Observações:
-- Certifique-se de que a pasta `datasets/` contém os arquivos CSV necessários antes de executar.
-- O treinamento pode demorar dependendo do tamanho dos dados e do hardware.
 
-Estrutura esperada dos datasets
-A pasta `datasets/` no repositório contém atualmente (exemplos demonstrados):
-- `dataset.csv`
-- `dataset2.csv`
-- `symptom_Description.csv` (descrições de sintomas)
-- `symptom_precaution.csv` (precauções por sintoma)
-- `Symptom-severity.csv` (mapeamentos ou índices de severidade auxiliares)
+Resposta:
 
-Recomendações de formato:
--	Arquivos principais de amostras devem conter colunas como `Disease`, `Fever`, `Cough`, `Fatigue`, `Difficulty Breathing`, `Age`, `Gender`, `Blood Pressure`, `Cholesterol Level` (nem todas são obrigatórias, o pipeline ignora as ausentes).
--	Valores binários (Yes/No) são convertidos automaticamente para 1/0.
+```json
+{
+  "predicted_class": "Emergencia",
+  "probabilities": {
+    "Autocuidado": 0.05,
+    "Consulta Medica": 0.12,
+    "Emergencia": 0.83
+  }
+}
+```
 
-Saídas geradas
--	`anfis_results.png` — gráfico com loss, acurácia e matriz de confusão (salvo pelo script de plotagem).
--	(Se configurado no código) checkpoints / modelos salvos podem ser produzidos — ver `main.py` para salvar manualmente o modelo.
+### Payloads de exemplo (um por classe)
 
-Reprodutibilidade
-	O projeto inclui a função `set_seed(seed)` em `main.py` que fixa `numpy` e `tensorflow` para resultados reproduzíveis.
-	Use sempre a mesma semente e a mesma versão das dependências para reproduzir resultados.
+- Autocuidado (sintomas leves, sem fatores de risco):
 
-**Como funciona**
-- Carregamento: o pipeline procura arquivos CSV na pasta `datasets/` e carrega automaticamente os arquivos compatíveis.
-- Pré-processamento: normaliza e converte variáveis binárias (Yes/No), trata `Age`, `Gender`, `Blood Pressure` e `Cholesterol Level`, remove duplicatas e linhas com features críticas ausentes.
-- Geração de labels: aplica regras heurísticas clínicas (função `create_severity_labels_improved`) para atribuir classes de severidade: 0=Autocuidado, 1=Consulta Médica, 2=Emergência.
-- Treino: divide os dados em treino/validação/teste, normaliza features, calcula `class_weight` se necessário e treina um modelo aproximado de ANFIS (Keras) com callbacks (EarlyStopping, ReduceLROnPlateau).
-- Avaliação: gera métricas (acurácia, relatório de classificação) e matriz de confusão; plota e salva gráficos em `anfis_results.png`.
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "Fever": 0,
+    "Cough": 0,
+    "Fatigue": 0,
+    "DifficultyBreathing": 0,
+    "Age": 25,
+    "Gender": 0,
+    "BloodPressure": 1,
+    "CholesterolLevel": 1
+  }'
+```
 
-**Como usar (passo a passo)**
-1. Coloque os CSVs na pasta `datasets/`.
-2. Crie e ative o ambiente virtual (ver seção Instalação).
-3. Instale dependências: `pip install -r requirements.txt`.
-4. Treine o modelo/execute o pipeline: `python main.py`.
-   - O script `main.py` executa todo o fluxo: carregamento, pré-processamento, criação de labels, treino e avaliação.
-5. Inicie a API (após treinar e salvar o modelo, se desejado): `uvicorn api:app --reload`.
-6. Verifique as saídas: `anfis_results.png` e logs de treino. Se desejar exportar o modelo, adicione `model.save('model.h5')` em `main.py`.
+- Consulta Medica (sintomas moderados + fator de risco):
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "Fever": 1,
+    "Cough": 1,
+    "Fatigue": 1,
+    "DifficultyBreathing": 0,
+    "Age": 52,
+    "Gender": 1,
+    "BloodPressure": 2,
+    "CholesterolLevel": 2
+  }'
+```
+
+- Emergencia (sintomas criticos):
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "Fever": 1,
+    "Cough": 1,
+    "Fatigue": 1,
+    "DifficultyBreathing": 1,
+    "Age": 70,
+    "Gender": 1,
+    "BloodPressure": 2,
+    "CholesterolLevel": 2
+  }'
+```

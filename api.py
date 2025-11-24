@@ -1,55 +1,42 @@
-import numpy as np
-import tensorflow as tf
 from fastapi import FastAPI
-from pydantic import BaseModel
-import joblib
+from pydantic import BaseModel, Field
 
+from inference import CLASSES, InferencePipeline
 
-from main import ANFISLayer
+app = FastAPI(title="Neuro-Fuzzy Symptom Triage API", version="3.0")
+pipeline = InferencePipeline()
 
-model = tf.keras.models.load_model(
-    "anfis_symptom_triage_model.keras",
-    custom_objects={"ANFISLayer": ANFISLayer},
-    compile=False
-)
-
-scaler = joblib.load("scaler.pkl")
-
-app = FastAPI(title="Neuro-Fuzzy Symptom Triage API")
-
-classes = ["Autocuidado", "Consulta Médica", "Emergência"]
 
 class Symptoms(BaseModel):
-    Fever: int
-    Cough: int
-    Fatigue: int
-    DifficultyBreathing: int
-    Age: int
-    Gender: int
-    BloodPressure: int
-    CholesterolLevel: int
+    Fever: int = Field(..., description="1 = fever present, 0 = no fever", example=1)
+    Cough: int = Field(..., description="1 = cough present, 0 = no cough", example=0)
+    Fatigue: int = Field(..., description="1 = fatigue present, 0 = no fatigue", example=1)
+    DifficultyBreathing: int = Field(..., description="1 = difficulty breathing, 0 = normal breathing", example=0)
+    Age: int = Field(..., description="Patient age in years", example=35)
+    Gender: int = Field(..., description="1 = Male, 0 = Female", example=1)
+    BloodPressure: int = Field(..., description="0 = Low, 1 = Normal, 2 = High blood pressure", example=2)
+    CholesterolLevel: int = Field(..., description="0 = Low, 1 = Normal, 2 = High cholesterol", example=1)
+
+
+@app.get("/health")
+def healthcheck():
+    return {"status": "ok"}
+
 
 @app.post("/predict")
 def predict_symptom_severity(symptoms: Symptoms):
-    features = np.array([[
-        symptoms.Fever,
-        symptoms.Cough,
-        symptoms.Fatigue,
-        symptoms.DifficultyBreathing,
-        symptoms.Age,
-        symptoms.Gender,
-        symptoms.BloodPressure,
-        symptoms.CholesterolLevel
-    ]])
-
-    features_scaled = scaler.transform(features)
-
-    prediction = model.predict(features_scaled)[0]
-    predicted_class = int(np.argmax(prediction))
+    label, probs = pipeline.predict({
+        "Fever": symptoms.Fever,
+        "Cough": symptoms.Cough,
+        "Fatigue": symptoms.Fatigue,
+        "Difficulty Breathing": symptoms.DifficultyBreathing,
+        "Age": symptoms.Age,
+        "Gender": symptoms.Gender,
+        "Blood Pressure": symptoms.BloodPressure,
+        "Cholesterol Level": symptoms.CholesterolLevel,
+    })
 
     return {
-        "predicted_class": classes[predicted_class],
-        "probabilities": {
-            classes[i]: float(prediction[i]) for i in range(3)
-        }
+        "predicted_class": label,
+        "probabilities": {CLASSES[i]: float(probs[i]) for i in range(len(CLASSES))},
     }
