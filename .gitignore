@@ -1,4 +1,5 @@
 venv/
+artifacts/
 .env/
 .envrc
 __pycache__/
